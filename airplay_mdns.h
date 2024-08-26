@@ -5,6 +5,4 @@
 
 #define AIRPLAY_MDNS_SERVICE "_airplay_tcplocal"
 
-int _airplay_valid_mdns_query_header(mdns_qry *query);
-
 #endif

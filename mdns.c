@@ -25,7 +25,7 @@
 #include "airplay_mdns.h"
 #include "util.h"
 
-int     init_mdns_addr()
+int             init_mdns_addr()
 {
     //start winsock dll
     #ifdef _WIN32
@@ -67,7 +67,7 @@ int     init_mdns_addr()
     }
 }
 
-int     _mdns_join(int fd)
+int             _mdns_join(int fd)
 {
     struct ip_mreq mreq;
     memset(&mreq, 0, sizeof(struct ip_mreq));
@@ -80,7 +80,7 @@ int     _mdns_join(int fd)
     return 1;
 }
 
-int     _mdns_exit(int fd)
+int             _mdns_exit(int fd)
 {
     struct ip_mreq mreq;
     memset(&mreq, 0, sizeof(struct ip_mreq));
@@ -93,84 +93,271 @@ int     _mdns_exit(int fd)
     return 1;
 }
 
-int     _mdns_name_res(u_char* msg, char* name, u_short idx)
+int             _mdns_name_res( u_char* msg, char* name )
 {
-    u_short label_len = msg[idx];
-
-    if( label_len == 0 )
+    if( *msg == 0 )
     {
         name[0] = '\0';
         return 1;
     }
-    else if ( (label_len >> 6) == MDNS_POINTER )
+    else if ( ( *msg >> 6 ) == DNS_COMPRESSION_FLAG )
     {
-        idx = MAKEWORD( msg[idx + 1], label_len & (~(MDNS_POINTER << 6)) );
-        _mdns_name_res(msg, name, idx);
+        char *msg_compression = msg + MAKEWORD( *( msg + 1 ), *msg & ( ~( DNS_COMPRESSION_FLAG << 6 ) ) );
+        _mdns_name_res( msg_compression, name );
         return 2;
     }
     else
     {
-        strncpy(name, msg + idx + 1, label_len);
-        return label_len + _mdns_name_res(msg, name + label_len, idx + label_len + 1);
+        strncpy( name, msg + 1, *msg );
+        return *msg + _mdns_name_res( msg, name + *msg + 1 );
     }
 }
 
-int     _strtomhead(char *msg, mdns_head *head){
+inline int      _dns_r_ptr( rr_ptr *ptr, char **msg )
+{
+    u_short data_len = MAKEWORD( *msg[9], *msg[8] );
+    char dom[256];
+    _mdns_name_res(*msg + 10, dom);
+    ptr->dom_len    = strlen(dom);
+    ptr->dom        = ( char * ) malloc( ptr->dom_len * sizeof(char) );
+    if( ptr->dom == NULL )
+    {
+        perror("malloc");
+        return -1;
+    }
+    strcpy( ptr->dom, dom );
+    *msg += 10 + data_len;
+    return 1;
+}
+
+inline int      _dns_r_a( rr_a *a, char **msg )
+{
+    u_short data_len = MAKEWORD( *msg[9], *msg[8] );
+    a->addr         = MAKEDWORD( *msg[10], *msg[11], *msg[12], *msg[13] );
+    *msg += 14 * sizeof(u_char);
+    return 1;
+}
+
+inline int      _dns_r_srv( rr_srv *srv, char **msg )
+{
+    char **labels = ( char ** ) malloc( 3 * sizeof( char * ) );
+
+    char *name = srv->name;
+    for( int i = 0; i < 3; i++ )
+    {
+        char *sub = strchr( name + 1, '_' );
+        if( sub == NULL )
+        {
+            labels[i] = ( char * ) malloc( strlen(name) * sizeof( char ) );
+            strcpy( labels[i], name );
+        }
+        u_short label_len = sub - name;
+        labels[i] = ( char * ) malloc( label_len * sizeof( char ) );
+        strncpy( labels[i], name, label_len - 1 );
+        labels[i][label_len] = '\0';
+        name += label_len;
+    }
+
+    srv->srv            = labels[0];
+    srv->proto          = labels[1];
+    srv->n              = labels[2];
+    u_short data_len    = MAKEWORD( *msg[9], *msg[8] );
+    srv->prio           = MAKEWORD( *msg[11], *msg[10] );
+    srv->wgt            = MAKEWORD( *msg[13], *msg[12] );
+    srv->port           = MAKEWORD( *msg[15], *msg[14] );
+    char tgt[256];
+    srv->tgt_len        = _mdns_name_res( *msg + 16, tgt );
+    srv->tgt            = ( char * ) malloc( srv->tgt_len * sizeof(char) );
+    strcpy( srv->tgt, tgt );
+    *msg += 16 + srv->tgt_len;
+    return 1;
+}
+
+inline int      _dns_r_txt( rr_txt *txt, char **msg )
+{
+    u_short data_len    = MAKEWORD( *msg[9], *msg[8] );
+    
+    char *idx = 10 + *msg;
+    *msg += 10 + data_len;
+    txt->data  = ( rr_txt_dat * ) malloc( sizeof( rr_txt_dat ) );
+    if( txt->data == NULL )
+    {
+        perror("malloc");
+        return -1;
+    }
+
+    rr_txt_dat *cur = txt->data;
+    while ( idx < *msg )
+    {
+        cur->k_len = *idx;
+        cur->k = ( char * ) malloc( *idx * sizeof(char) );
+        strncpy( cur->k, idx + 1, *idx );
+        idx += *idx + 1;
+        cur->next  = ( rr_txt_dat * ) malloc( sizeof( rr_txt_dat ) );
+        if( cur->next == NULL )
+        {
+            perror("malloc");
+            return -1;
+        }
+        cur = cur->next;
+    }
+
+    return 1;
+}
+
+int             _mdns_rr_prep( rr_base *base, char* name, u_char type, char **msg )
+{
+    base->name_len      = strlen( name );
+    base->name          = ( char * ) malloc( base->name_len * sizeof(char) );
+    if( base->name == NULL )
+    {
+        perror("malloc");
+        return -1;
+    }
+    strcpy( base->name, name );
+    base->type          = type;
+    u_short cqu         = MAKEWORD( *msg[3], *msg[2] );
+    base->class         = cqu & ( ~ (1 << 15) );
+    base->flush         = cqu >> 15;
+    base->ttl           = MAKEDWORD( *msg[7], *msg[6], *msg[5], *msg[4] );
+}
+
+int             _mdns_rr_res( mdns_rr *rr, char **msg )
+{
+    char name[MDNS_NAME_MAX_LEN];
+    *msg += _mdns_name_res( *msg, name ) + 1;
+    u_short type = MAKEWORD( *(*msg + 1), **msg );
+
+    _mdns_rr_prep( ( rr_base * ) rr->rr, name, type, msg );
+
+    switch ( type )
+    {
+        case DNS_RR_PTR:
+            return _dns_r_ptr( &(rr->rr->ptr), msg );
+            break;
+        case DNS_RR_A:
+            return _dns_r_a( &(rr->rr->a), msg );
+            break;
+        case DNS_RR_SRV:
+            return _dns_r_srv( &(rr->rr->srv), msg );
+            break;
+        case DNS_RR_TXT:
+            return _dns_r_txt( &(rr->rr->txt), msg );
+            break;
+        default:
+            fprintf(stderr, "Error: DNS record of type %d not supported\n", type);
+            return -1;
+    }
+}
+
+int             _mdns_qtn_res( mdns_qtn *qtn, char **msg )
+{
+    char name[MDNS_NAME_MAX_LEN];
+    *msg += _mdns_name_res( *msg, name ) + 1;
+    u_char type = MAKEWORD( *(*msg + 1), **msg );
+
+    qtn->name_len   = strlen( name );
+    qtn->name       = ( char * ) malloc( qtn->name_len * sizeof(char) );
+    if( qtn->name == NULL )
+    {
+        perror("malloc");
+        return -1;
+    }
+    strcpy( qtn->name, name );
+
+    qtn->type       = type;
+    u_short cqu     = MAKEWORD( *msg[3], *msg[2]);
+    qtn->class      = cqu & ( ~ (1 << 15) );
+    qtn->cast       = cqu >> 15 ;
+    *msg += 4;
+}
+
+int             _strtorr( mdns_rr **rrs, u_short rr_ct, char **msg )
+{
+    rrs = ( mdns_rr ** ) malloc( rr_ct * sizeof( mdns_rr * ) );
+    
+}
+
+int             _strtomqtn( mdns_qtn **qtns, u_short qtn_ct, char **msg )
+{
+    qtns = (mdns_qtn **) malloc( qtn_ct * sizeof(mdns_qtn *) );
+    for( int i = 0; i < qtn_ct; i++ )
+    {
+        mdns_qtn *qtn = qtns[i]; 
+        qtn = ( mdns_qtn * ) malloc( sizeof( mdns_qtn ) );
+
+        if ( qtn == NULL)
+        {
+            perror("malloc");
+            return -1;
+        }
+
+        if( _mdns_qtn_res( qtn, msg ) < 1)
+        {
+            return -1;
+        }
+    }
+}
+
+inline void     _strtomhead(char *msg, mdns_head *head)
+{
     head->tran_id   = MAKEWORD(msg[1], msg[0]);
     head->flags     = MAKEWORD(msg[3], msg[2]);
     head->qtn       = MAKEWORD(msg[5], msg[4]);
     head->rr        = MAKEWORD(msg[7], msg[6]);
     head->auth_rr   = MAKEWORD(msg[9], msg[8]);
-    head->add_rr    = MAKEWORD(msg[11], msg[10]);
+    head->arr    = MAKEWORD(msg[11], msg[10]);
 }
 
-int     strtom(char* msg, mdns_msg* mdns){
-    _strtomhead(msg, mdns->head);
+int             strtom( mdns_msg *mdns, mdns_msg_raw *msg_raw )
+{
+    _strtomhead(msg_raw->msg, mdns->head);
 
-    mdns->body->qtns = (mdns_qtn **) malloc( mdns->head->qtn * sizeof(mdns_qtn *) );
+    mdns->body->rrs = NULL;
+    mdns->body->arrs = NULL;
+
+    char* msg = msg_raw->msg + MDNS_MSG_HEADER_LEN; 
+    
+    if ( _strtomqtn( mdns->body->qtns, mdns->head->qtn, &msg ) < 1 )
+    {
+        return -1;
+    }
+
+    //TODO Abstract RR processing
     mdns->body->rrs = (mdns_rr **) malloc( mdns->head->rr * sizeof(mdns_rr *) );
-
-    u_short msg_idx = MDNS_MSG_HEADER_LEN; 
-
-    for (int i = 0; i < mdns->head->qtn; i++)
+    for( int i = 0; i < mdns->head->rr; i++ )
     {
-        //LOOK UP IF OVER REFERENCING IS LESS EFFICIENT
-        mdns_qtn *qtn = (mdns_qtn *) malloc ( sizeof(mdns_qtn) );
-        mdns->body->qtns[i] = qtn;
-
-        msg_idx += _mdns_name_res( msg, qtn->name, msg_idx);
-
-        qtn->name_len    = strlen(qtn->name);
-        qtn->type       = MAKEWORD( msg[msg_idx + 1], msg[msg_idx]);
-        u_short cqu     = MAKEWORD( msg[msg_idx + 3], msg[msg_idx + 2]);
-        qtn->class      = cqu & ( ~ (1 << 15) );
-        qtn->cast       = cqu & ( 1 << 15 );
-
-        msg_idx += 4;
+        mdns->body->rrs[i] = ( mdns_rr * ) malloc( sizeof( mdns_rr ) );
+        if ( mdns->body->rrs[i] == NULL)
+        {
+            perror("malloc");
+            return -1;
+        }
     }
 
-    for (int i = 0; i < mdns->head->rr; i++)
+    //TODO Abstract ADDITIONAL RR processing
+    mdns->body->arrs = (mdns_arr **) malloc( mdns->head->arr * sizeof(mdns_arr *) );
+    for( int i = 0; i < mdns->head->arr; i++ )
     {
-        mdns_rr *rr = (mdns_rr *) malloc ( sizeof(mdns_rr) );
-        mdns->body->rrs[i] = rr;
-
-        msg_idx += _mdns_name_res( msg, rr->name, msg_idx );
-
-        rr->name_len     = strlen(rr->name);
-        rr->type        = MAKEWORD( msg[msg_idx + 1], msg[msg_idx]);
-        u_short cqu     = MAKEWORD( msg[msg_idx + 3], msg[msg_idx + 2]);
-        rr->class       = cqu & ( ~ (1 << 15) );
-        rr->flush       = cqu & ( 1 << 15 );
-        rr->ttl         = MAKEDWORD( msg[msg_idx + 7], msg[msg_idx + 6], msg[msg_idx + 5], msg[msg_idx + 4]);
-        //WRONG INDEX??
-        rr->dom_len     = MAKEWORD( msg[msg_idx + 5], msg[msg_idx + 4] );
-        
-        msg_idx += 6;
-        msg_idx += _mdns_name_res( msg, rr->dom, msg_idx);
+        mdns->body->arrs[i] = ( mdns_arr * ) malloc( sizeof( mdns_arr ) );
+        if ( mdns->body->arrs[i] == NULL)
+        {
+            perror("malloc");
+            return -1;
+        }
     }
 }
 
-int     mdns_listen(int fd, mdns_msg ***msg, double listen_time)
+//work on saving vs deleting the discarded msgs
+int             mdns_select(mdns_msg **msg, mdns_msg_raw **msg_raw, int msg_raw_ct, char* srv, char srv_len, char dis)
+{
+    for ( int i = 0; i < msg_raw_ct; i++ )
+    {
+        strtom( msg[i], msg_raw[i] );
+    }
+}
+
+int             mdns_listen(int fd, mdns_msg_raw **msg, int buflen, double listen_time)
 {
 
     if ( _mdns_join(fd) < -1 )
@@ -178,9 +365,7 @@ int     mdns_listen(int fd, mdns_msg ***msg, double listen_time)
         return -1;
     }
 
-    mdns_msg **msg_local;
-
-    u_short msg_cnt = 0, msg_alloc = 2;
+    u_short msg_ct = 0, msg_alloc = 2;
     time_t start, cur;
     start = cur = time(NULL);
 
@@ -237,22 +422,31 @@ int     mdns_listen(int fd, mdns_msg ***msg, double listen_time)
                     return -1;
                 }
                 msgbuf[ nbytes ] = '\0';
-                
-                printf("%d\n", nbytes);
 
-                msg_local[ msg_cnt ] = (mdns_qtn *) malloc(sizeof(mdns_qtn));
-                if ( msg_local[ msg_cnt ] == NULL )
+                msg[ msg_ct ] = ( mdns_msg_raw * ) malloc( sizeof( mdns_msg_raw ) );
+                if ( msg[ msg_ct ] == NULL )
                 {
                     perror("malloc");
                     return -1;
                 }
 
-                if ( ++msg_cnt >= msg_alloc )
+                mdns_msg_raw *msg_new = msg [ msg_ct ];
+                msg_new->msg = ( char * ) malloc( nbytes * sizeof( char ) );
+                if ( msg_new == NULL )
+                {
+                    perror("realloc");
+                    return -1;
+                }
+                memcpy(msg_new->msg, msgbuf, nbytes);
+                msg_new->msg_len = nbytes;
+                msg_new->info = src;
+
+                if ( ++msg_ct >= msg_alloc )
                 {
                     //implement debouncer
-                    msg_alloc = msg_cnt + 2;
-                    msg_local = ( mdns_qtn ** ) realloc( msg_local, msg_alloc * sizeof(mdns_qtn *) );
-                    if(msg_local == NULL)
+                    msg_alloc = msg_ct + 2;
+                    msg = ( mdns_msg_raw ** ) realloc( msg, msg_alloc * sizeof(mdns_msg_raw *) );
+                    if(msg == NULL)
                     {
                         perror("realloc");
                         return -1;
@@ -268,12 +462,10 @@ int     mdns_listen(int fd, mdns_msg ***msg, double listen_time)
         }
     }
 
-    *msg = msg_local;
-
     if ( _mdns_exit(fd) )
     {
         return -1;
     }
     
-    return msg_cnt;
+    return msg_ct;
 }

@@ -1,10 +1,20 @@
 #include <stdio.h>
+#include <unistd.h>
+#include <stdlib.h>
 #include <string.h>
 
+typedef struct t
+{
+    char* str;
+} t;
 
-char a[] = "abc";
-char b[] = "abc";
+void test(t *pt)
+{
+    pt->str = "test";
+}
 
-int main(){
-    printf("%d\n", strcmp(a, b));
+int main() {
+    t abc;
+    printf(abc.str);
+    return 0;
 }
