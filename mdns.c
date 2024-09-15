@@ -25,7 +25,8 @@
 #include "airplay_mdns.h"
 #include "util.h"
 
-int             init_mdns_addr()
+//initializes network ressources
+int             init_mdns_addr( int *fd )
 {
     //start winsock dll
     #ifdef _WIN32
@@ -42,15 +43,15 @@ int             init_mdns_addr()
     #endif
 
     //create udp socket
-    int fd = (int)socket(AF_INET, SOCK_DGRAM, 0);
-    if (fd < 0) {
+    *fd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (*fd < 0) {
         perror("socket");
         return -1;
     }
     
     //enable reusing ports
     u_int enable_reuseaddr = 1;
-    if ( setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (char*) &enable_reuseaddr, sizeof(enable_reuseaddr)) < 0) {
+    if ( setsockopt(*fd, SOL_SOCKET, SO_REUSEADDR, (char*) &enable_reuseaddr, sizeof(enable_reuseaddr)) < 0) {
         perror("reuse addr failed");
         return -1;
     }
@@ -61,12 +62,14 @@ int             init_mdns_addr()
     addr.sin_family = AF_INET;
     addr.sin_addr.s_addr = htonl(INADDR_ANY);
     addr.sin_port = htons(MDNS_NETWORK_PORT);
-    if ( bind(fd, (struct sockaddr*) &addr, sizeof(addr)) < 0 ) {
+    if ( bind(*fd, (struct sockaddr*) &addr, sizeof(addr)) < 0 ) {
         perror("bind");
         return -1;
     }
+    return 1;
 }
 
+//join mdns network
 int             _mdns_join(int fd)
 {
     struct ip_mreq mreq;
@@ -80,6 +83,7 @@ int             _mdns_join(int fd)
     return 1;
 }
 
+//leave mdns network
 int             _mdns_exit(int fd)
 {
     struct ip_mreq mreq;
@@ -93,6 +97,7 @@ int             _mdns_exit(int fd)
     return 1;
 }
 
+//extracts string from mdns message dealing ith dns compression
 int             _mdns_name_res( u_char* msg, char* name )
 {
     if( *msg == 0 )
@@ -113,6 +118,7 @@ int             _mdns_name_res( u_char* msg, char* name )
     }
 }
 
+//converts string ptr rr to struct
 inline int      _dns_r_ptr( rr_ptr *ptr, char **msg )
 {
     u_short data_len = MAKEWORD( *msg[9], *msg[8] );
@@ -130,6 +136,7 @@ inline int      _dns_r_ptr( rr_ptr *ptr, char **msg )
     return 1;
 }
 
+//converts string a rr to struct
 inline int      _dns_r_a( rr_a *a, char **msg )
 {
     u_short data_len = MAKEWORD( *msg[9], *msg[8] );
@@ -138,6 +145,7 @@ inline int      _dns_r_a( rr_a *a, char **msg )
     return 1;
 }
 
+//converts string srv rr to struct
 inline int      _dns_r_srv( rr_srv *srv, char **msg )
 {
     char **labels = ( char ** ) malloc( 3 * sizeof( char * ) );
@@ -173,6 +181,7 @@ inline int      _dns_r_srv( rr_srv *srv, char **msg )
     return 1;
 }
 
+//converts string txt rr to struct
 inline int      _dns_r_txt( rr_txt *txt, char **msg )
 {
     u_short data_len    = MAKEWORD( *msg[9], *msg[8] );
@@ -205,6 +214,7 @@ inline int      _dns_r_txt( rr_txt *txt, char **msg )
     return 1;
 }
 
+//preps string mdns rr/arr for conversion to struct 
 int             _mdns_rr_prep( rr_base *base, char* name, u_char type, char **msg )
 {
     base->name_len      = strlen( name );
@@ -222,6 +232,7 @@ int             _mdns_rr_prep( rr_base *base, char* name, u_char type, char **ms
     base->ttl           = MAKEDWORD( *msg[7], *msg[6], *msg[5], *msg[4] );
 }
 
+//detects type of and preps string mdns rr/arr for conversion to struct
 int             _mdns_rr_res( mdns_rr *rr, char **msg )
 {
     char name[MDNS_NAME_MAX_LEN];
@@ -250,6 +261,7 @@ int             _mdns_rr_res( mdns_rr *rr, char **msg )
     }
 }
 
+//detects type of and preps string mdns qtn for conversion to struct
 int             _mdns_qtn_res( mdns_qtn *qtn, char **msg )
 {
     char name[MDNS_NAME_MAX_LEN];
@@ -272,12 +284,29 @@ int             _mdns_qtn_res( mdns_qtn *qtn, char **msg )
     *msg += 4;
 }
 
-int             _strtorr( mdns_rr **rrs, u_short rr_ct, char **msg )
+//converts string mdns qtn to struct
+int             _strtomrr( mdns_rr **rrs, u_short rr_ct, char **msg )
 {
     rrs = ( mdns_rr ** ) malloc( rr_ct * sizeof( mdns_rr * ) );
-    
+    for( int i = 0; i < rr_ct; i++ )
+    {
+        mdns_rr *rr = rrs[i];
+        rr = ( mdns_rr * ) malloc( sizeof( mdns_rr ) );
+
+        if ( rr == NULL )
+        {
+            perror("malloc");
+            return -1;
+        }
+
+        if( _mdns_rr_res( rr, msg ) < 1 )
+        {
+            return -1;
+        }
+    }
 }
 
+//converts string mdns qtn to struct
 int             _strtomqtn( mdns_qtn **qtns, u_short qtn_ct, char **msg )
 {
     qtns = (mdns_qtn **) malloc( qtn_ct * sizeof(mdns_qtn *) );
@@ -299,6 +328,7 @@ int             _strtomqtn( mdns_qtn **qtns, u_short qtn_ct, char **msg )
     }
 }
 
+//extracts header from string mdns message
 inline void     _strtomhead(char *msg, mdns_head *head)
 {
     head->tran_id   = MAKEWORD(msg[1], msg[0]);
@@ -309,6 +339,7 @@ inline void     _strtomhead(char *msg, mdns_head *head)
     head->arr    = MAKEWORD(msg[11], msg[10]);
 }
 
+//converts string mdns message to struct
 int             strtom( mdns_msg *mdns, mdns_msg_raw *msg_raw )
 {
     _strtomhead(msg_raw->msg, mdns->head);
@@ -320,35 +351,24 @@ int             strtom( mdns_msg *mdns, mdns_msg_raw *msg_raw )
     
     if ( _strtomqtn( mdns->body->qtns, mdns->head->qtn, &msg ) < 1 )
     {
+        printf("Error: MDNS question processing\n");
         return -1;
     }
 
-    //TODO Abstract RR processing
-    mdns->body->rrs = (mdns_rr **) malloc( mdns->head->rr * sizeof(mdns_rr *) );
-    for( int i = 0; i < mdns->head->rr; i++ )
+    if ( _strtomrr( mdns->body->rrs, mdns->head->rr, &msg ) < 1 )
     {
-        mdns->body->rrs[i] = ( mdns_rr * ) malloc( sizeof( mdns_rr ) );
-        if ( mdns->body->rrs[i] == NULL)
-        {
-            perror("malloc");
-            return -1;
-        }
+        printf("Error: MDNS ressource record processing\n");
+        return -1;
     }
 
-    //TODO Abstract ADDITIONAL RR processing
-    mdns->body->arrs = (mdns_arr **) malloc( mdns->head->arr * sizeof(mdns_arr *) );
-    for( int i = 0; i < mdns->head->arr; i++ )
+    if ( _strtomrr( mdns->body->arrs, mdns->head->arr, &msg ) < 1 )
     {
-        mdns->body->arrs[i] = ( mdns_arr * ) malloc( sizeof( mdns_arr ) );
-        if ( mdns->body->arrs[i] == NULL)
-        {
-            perror("malloc");
-            return -1;
-        }
+        printf("Error: MDNS additional ressource record processing\n");
+        return -1;
     }
 }
 
-//work on saving vs deleting the discarded msgs
+//filters mdns messages
 int             mdns_select(mdns_msg **msg, mdns_msg_raw **msg_raw, int msg_raw_ct, char* srv, char srv_len, char dis)
 {
     for ( int i = 0; i < msg_raw_ct; i++ )
@@ -357,7 +377,8 @@ int             mdns_select(mdns_msg **msg, mdns_msg_raw **msg_raw, int msg_raw_
     }
 }
 
-int             mdns_listen(int fd, mdns_msg_raw **msg, int buflen, double listen_time)
+//listens to mdns network and stores all messages
+int             mdns_listen(int fd, mdns_msg_raw_ct *raw_ct, int buflen, double listen_time)
 {
 
     if ( _mdns_join(fd) < -1 )
@@ -365,12 +386,15 @@ int             mdns_listen(int fd, mdns_msg_raw **msg, int buflen, double liste
         return -1;
     }
 
+    mdns_msg_raw **msg;
+
     u_short msg_ct = 0, msg_alloc = 2;
     time_t start, cur;
     start = cur = time(NULL);
 
     while ( difftime(cur, start) < (double)listen_time )
     {
+        printf("%d", difftime(cur, start));
         cur = time(NULL);
 
         struct pollfd mdns_poll = 
@@ -452,6 +476,7 @@ int             mdns_listen(int fd, mdns_msg_raw **msg, int buflen, double liste
                         return -1;
                     }
                 }
+                printf("recved\n");
             }
             
             else
@@ -460,12 +485,15 @@ int             mdns_listen(int fd, mdns_msg_raw **msg, int buflen, double liste
                 return -1;
             }
         }
+
     }
 
-    if ( _mdns_exit(fd) )
+    msg_raw_cnt->msg_raw = msg;
+
+    /*if ( _mdns_exit(fd) )
     {
         return -1;
-    }
+    }*/
     
     return msg_ct;
 }

@@ -4,8 +4,9 @@
 
 
 int main(){
-    int fd = init_mdns_addr();
-    mdns_msg **msgs;
-    //int count = mdns_listen(fd, &msgs, 15.0);
-    //printf("%d\n", count);
+    int fd;
+    init_mdns_addr(&fd);
+    mdns_msg_raw_ct msg_raw;
+    int count = mdns_listen(fd, &msg_raw, 2048, 15.0);
+    printf("%d\n", count);
 }

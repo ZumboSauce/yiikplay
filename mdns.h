@@ -101,11 +101,6 @@ typedef struct rr_base
     u_int ttl;
 } rr_base;
 
-typedef struct mdns_arr
-{
-    rr_base *data;
-} mdns_arr;
-
 typedef struct mdns_rr
 {
     union
@@ -130,7 +125,7 @@ typedef struct mdns_body
 {
     mdns_qtn** qtns;
     mdns_rr** rrs;
-    mdns_arr** arrs;
+    mdns_rr** arrs;
 } mdns_body;
 
 typedef struct mdns_head
@@ -150,6 +145,11 @@ typedef struct mdns_msg_raw
     u_short msg_len;
 } mdns_msg_raw;
 
+typedef struct mdns_msg_raw_ct
+{
+    mdns_msg_raw **msg_raw;
+} mdns_msg_raw_ct;
+
 typedef struct mdns_msg
 {
     struct sockaddr_in *info;
@@ -157,16 +157,16 @@ typedef struct mdns_msg
     mdns_body* body;
 } mdns_msg;
 
-int             init_mdns_addr();
-int             _mdns_join( int fd );
-int             _mdns_exit( int fd );
-int             mdns_listen( int fd, mdns_msg_raw **msg, int buflen, double listen_time );
+int             init_mdns_addr( int *fd );
+int             _mdns_join( const int fd );
+int             _mdns_exit( const int fd );
+int             mdns_listen( const int fd, mdns_msg_raw_ct *msg_raw_ct, int buflen, double listen_time );
 
 #define _IS_QUERY(f) ( ~( f & (0b1 << 8) ) )
 int             strtom( mdns_msg *mdns, mdns_msg_raw *msg_raw );
 void            _strtomhead( char *msg, mdns_head *head );
 int             _strtomqtn( mdns_qtn **qtns, u_short qtn_ct, char **msg );
-int             _strtomrr( mdns_rr *rrs, u_short rr_ct, char **msg );
+int             _strtomrr( mdns_rr **rrs, u_short rr_ct, char **msg );
 int             _mdns_name_res( u_char* msg, char* name );
 int             _dns_r_ptr( rr_ptr *ptr, char **msg );
 int             _dns_r_a( rr_a *a, char **msg );
