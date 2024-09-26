@@ -109,7 +109,7 @@ typedef struct mdns_rr
         rr_a a;
         rr_srv srv;
         rr_txt txt;
-    } *rr;
+    } rr;
 } mdns_rr;
 
 typedef struct mdns_qtn
@@ -123,9 +123,9 @@ typedef struct mdns_qtn
 
 typedef struct mdns_body
 {
-    mdns_qtn** qtns;
-    mdns_rr** rrs;
-    mdns_rr** arrs;
+    mdns_qtn* qtns;
+    mdns_rr* rrs;
+    mdns_rr* arrs;
 } mdns_body;
 
 typedef struct mdns_head
@@ -145,33 +145,27 @@ typedef struct mdns_msg_raw
     u_short msg_len;
 } mdns_msg_raw;
 
-typedef struct mdns_msg_raw_ct
-{
-    mdns_msg_raw **msg_raw;
-} mdns_msg_raw_ct;
-
 typedef struct mdns_msg
 {
     struct sockaddr_in *info;
-    mdns_head* head;
-    mdns_body* body;
+    mdns_head head;
+    mdns_body body;
 } mdns_msg;
 
 int             init_mdns_addr( int *fd );
 int             _mdns_join( const int fd );
 int             _mdns_exit( const int fd );
-int             mdns_listen( const int fd, mdns_msg_raw_ct *msg_raw_ct, int buflen, double listen_time );
+int             mdns_listen( const int fd, mdns_msg_raw ***msgs_raw, int buflen, double listen_time );
+int             mdns_select( mdns_msg ***msgs, mdns_msg_raw **msgs_raw, int msg_raw_cnt, char* srv);
 
 #define _IS_QUERY(f) ( ~( f & (0b1 << 8) ) )
 int             strtom( mdns_msg *mdns, mdns_msg_raw *msg_raw );
-void            _strtomhead( char *msg, mdns_head *head );
-int             _strtomqtn( mdns_qtn **qtns, u_short qtn_ct, char **msg );
-int             _strtomrr( mdns_rr **rrs, u_short rr_ct, char **msg );
-int             _mdns_name_res( u_char* msg, char* name );
-int             _dns_r_ptr( rr_ptr *ptr, char **msg );
-int             _dns_r_a( rr_a *a, char **msg );
-int             _dns_r_srv( rr_srv *srv, char **msg );
-int             _dns_r_txt( rr_txt *txt, char **msg );
-int             _mdns_qtn_res( mdns_qtn *qtn, char **msg );
-int             _mdns_rr_res( mdns_rr *rr, char **msg );
+void            _strtomhead( char **msg, mdns_head *head );
+int             _strtomqtn( mdns_qtn *qtn, char **msg, char *msg_o );
+int             _strtomrr( mdns_rr *rr, char **msg, char *msg_o );
+int             _mdns_name_res( u_char* msg, char* name, u_short idx );
+int             _dns_r_ptr( rr_ptr *ptr, char **msg, char *msg_o );
+int             _dns_r_a( rr_a *a, char **msg, char *msg_o );
+int             _dns_r_srv( rr_srv *srv, char **msg, char *msg_o );
+int             _dns_r_txt( rr_txt *txt, char **msg, char *msg_o );
 #endif

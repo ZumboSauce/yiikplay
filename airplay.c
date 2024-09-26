@@ -6,7 +6,8 @@
 int main(){
     int fd;
     init_mdns_addr(&fd);
-    mdns_msg_raw_ct msg_raw;
-    int count = mdns_listen(fd, &msg_raw, 2048, 15.0);
-    printf("%d\n", count);
+    mdns_msg_raw **msgs_raw;
+    int count = mdns_listen(fd, &msgs_raw, 2048, 5.0);
+    mdns_msg **mdns_msgs;
+    int thing = mdns_select(&mdns_msgs, msgs_raw, count, AIRPLAY_MDNS_SERVICE);
 }
