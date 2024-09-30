@@ -97,6 +97,12 @@ int             _mdns_exit(int fd)
     return 1;
 }
 
+void            _mdns_qtn_free( mdns_qtn *qtn )
+{
+    free( qtn->name );
+    free( qtn );
+}
+
 //extracts string from mdns message dealing ith dns compression
 int             _mdns_name_res( u_char* msg, char* name, u_short idx )
 {
@@ -239,21 +245,21 @@ int             _strtomrr( mdns_rr *rr, char **msg, char *msg_o )
     *msg += _mdns_name_res( msg_o, name, msg_o - *msg );
     u_short type = MAKEWORD( *(*msg + 1), **msg );
 
-    _mdns_rr_prep( ( rr_base * ) &(rr->rr), name, type, msg );
+    _mdns_rr_prep( ( rr_base * ) &(rr), name, type, msg );
 
     switch ( type )
     {
         case DNS_RR_PTR:
-            return _dns_r_ptr( &(rr->rr.ptr), msg, msg_o );
+            return _dns_r_ptr( &(rr->ptr), msg, msg_o );
             break;
         case DNS_RR_A:
-            return _dns_r_a( &(rr->rr.a), msg, msg_o );
+            return _dns_r_a( &(rr->a), msg, msg_o );
             break;
         case DNS_RR_SRV:
-            return _dns_r_srv( &(rr->rr.srv), msg, msg_o );
+            return _dns_r_srv( &(rr->srv), msg, msg_o );
             break;
         case DNS_RR_TXT:
-            return _dns_r_txt( &(rr->rr.txt), msg, msg_o );
+            return _dns_r_txt( &(rr->txt), msg, msg_o );
             break;
         default:
             fprintf(stderr, "Error: DNS record of type %d not supported\n", type);
@@ -308,7 +314,6 @@ int             strtom( mdns_msg *mdns, mdns_msg_raw *msg_raw )
     mdns->body.qtns = malloc ( mdns->head.qtn * sizeof( mdns_qtn ) );
     mdns->body.rrs = malloc ( mdns->head.rr * sizeof( mdns_rr ) );
     mdns->body.arrs = malloc ( mdns->head.arr * sizeof( mdns_rr ) );
-    
 
     for ( int i = 0; i < mdns->head.qtn; i++ )
     {
@@ -328,7 +333,6 @@ int             strtom( mdns_msg *mdns, mdns_msg_raw *msg_raw )
         }
     }
 
-
     for ( int i = 0; i < mdns->head.arr; i++ )
     {
         if ( _strtomrr( &( mdns->body.arrs[i] ), &msg, msg_raw->msg ) < 1 )
@@ -337,6 +341,8 @@ int             strtom( mdns_msg *mdns, mdns_msg_raw *msg_raw )
             return -1;
         }
     }
+
+    return 1;
 }
 
 //filters mdns messages
@@ -349,22 +355,44 @@ int             mdns_select(mdns_msg ***mdns_msgs, mdns_msg_raw **raw_msgs, int 
         return -1;
     }
 
+    short selected = 0, alloc = 2;
+
     for ( int i = 0; i < msg_raw_cnt; i++ )
     { 
+
         mdns_msg *msg = (*mdns_msgs)[i] = malloc( sizeof( mdns_msg ) );
         if ( msg == NULL )
         {
             perror("malloc");
             return -1;
         }
-        strtom( msg, raw_msgs[i] );
+        if ( strtom( msg, raw_msgs[i] ) < 1 )
+        {
+            perror("strtom");
+            return -1;
+        }
+
+        mdns_qtn **qtns_selected = malloc( msg->head.qtn * sizeof( mdns_msg * ) );
+        if ( qtns_selected == NULL )
+        {
+            perror("malloc");
+            return -1;
+        }
+
         for ( int j = 0; j < msg->head.qtn; j++ )
         {
-            if ( !strcmp( msg->body.qtns[j].name, srv ) )
+            mdns_qtn *qtn = &( msg->body.qtns[j] );
+            printf("%s\n", qtn->name);
+            if ( strcmp( qtn->name, srv ) )
             {
-                continue;
-            } 
+                _mdns_qtn_free( qtn );
+            } else {
+                qtns_selected[ selected++ ] = qtn;
+            }
         }
+        msg->body.qtns = *qtns_selected;
+        msg->head.qtn = selected;
+    
     }
 }
 
@@ -447,7 +475,7 @@ int             mdns_listen(int fd, mdns_msg_raw ***raw_msgs, int buflen, double
                     }
                 }
 
-                mdns_msg_raw **msg = &( *raw_msgs[ msg_ct++ ] );
+                mdns_msg_raw **msg = *raw_msgs + msg_ct++;
                 *msg = malloc( sizeof( mdns_msg_raw ) );
                 if ( *msg == NULL )
                 {

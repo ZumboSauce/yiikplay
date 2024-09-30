@@ -1,3 +1,3 @@
 
 Todo:
-  ☐ Add RR resolver
+  ☐ Replace triple pointers with struct like iovec

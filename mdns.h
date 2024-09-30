@@ -101,15 +101,12 @@ typedef struct rr_base
     u_int ttl;
 } rr_base;
 
-typedef struct mdns_rr
+typedef union mdns_rr
 {
-    union
-    {
-        rr_ptr ptr;
-        rr_a a;
-        rr_srv srv;
-        rr_txt txt;
-    } rr;
+    rr_ptr ptr;
+    rr_a a;
+    rr_srv srv;
+    rr_txt txt;
 } mdns_rr;
 
 typedef struct mdns_qtn
