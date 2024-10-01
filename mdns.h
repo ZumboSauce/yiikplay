@@ -118,6 +118,12 @@ typedef struct mdns_qtn
     char cast;
 } mdns_qtn;
 
+typedef struct mdns_qtn_vec
+{
+    mdns_qtn **qtns;
+    u_short qtn_ct;
+} mdns_qtn_vec;
+
 typedef struct mdns_body
 {
     mdns_qtn* qtns;
@@ -142,6 +148,12 @@ typedef struct mdns_msg_raw
     u_short msg_len;
 } mdns_msg_raw;
 
+typedef struct mdns_msg_raw_vec
+{
+    struct mdns_msg_raw **msgs_raw;
+    u_short raw_ct;
+} mdns_msg_raw_vec;
+
 typedef struct mdns_msg
 {
     struct sockaddr_in *info;
@@ -149,14 +161,20 @@ typedef struct mdns_msg
     mdns_body body;
 } mdns_msg;
 
+typedef struct mdns_msg_vec
+{
+    mdns_msg **msgs;
+    u_short msg_ct;
+} mdns_msg_vec;
+
 int             init_mdns_addr( int *fd );
 int             _mdns_join( const int fd );
 int             _mdns_exit( const int fd );
-int             mdns_listen( const int fd, mdns_msg_raw ***msgs_raw, int buflen, double listen_time );
-int             mdns_select( mdns_msg ***msgs, mdns_msg_raw **msgs_raw, int msg_raw_cnt, char* srv);
+int             mdns_listen( const int fd, mdns_msg_raw_vec *raw_msgs, int buflen, double listen_time );
+int             mdns_select( mdns_msg_vec *msgs, mdns_qtn_vec *qtns, char* srv );
 
 #define _IS_QUERY(f) ( ~( f & (0b1 << 8) ) )
-int             strtom( mdns_msg *mdns, mdns_msg_raw *msg_raw );
+int             strtom( mdns_msg *mdns, char *raw );
 void            _strtomhead( char **msg, mdns_head *head );
 int             _strtomqtn( mdns_qtn *qtn, char **msg, char *msg_o );
 int             _strtomrr( mdns_rr *rr, char **msg, char *msg_o );

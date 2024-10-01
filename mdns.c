@@ -97,12 +97,6 @@ int             _mdns_exit(int fd)
     return 1;
 }
 
-void            _mdns_qtn_free( mdns_qtn *qtn )
-{
-    free( qtn->name );
-    free( qtn );
-}
-
 //extracts string from mdns message dealing ith dns compression
 int             _mdns_name_res( u_char* msg, char* name, u_short idx )
 {
@@ -265,11 +259,10 @@ int             _strtomrr( mdns_rr *rr, char **msg, char *msg_o )
             fprintf(stderr, "Error: DNS record of type %d not supported\n", type);
             return -1;
     }
-    return 1;
 }
 
 //converts string mdns qtn to struct
-int             _strtomqtn( mdns_qtn *qtn, char **msg, char *msg_o )
+int              _strtomqtn( mdns_qtn *qtn, char **msg, char *msg_o )
 {
     char name[MDNS_NAME_MAX_LEN];
     *msg += _mdns_name_res( msg_o, name, *msg - msg_o );
@@ -306,10 +299,10 @@ inline void     _strtomhead(char **msg, mdns_head *head)
 }
 
 //converts string mdns message to struct
-int             strtom( mdns_msg *mdns, mdns_msg_raw *msg_raw )
+int             strtom( mdns_msg *mdns, char *raw )
 {
-    char* msg = msg_raw->msg;
-    _strtomhead( &msg, &( mdns->head ) ); 
+    char *raw_o = raw;
+    _strtomhead( &raw, &( mdns->head ) ); 
 
     mdns->body.qtns = malloc ( mdns->head.qtn * sizeof( mdns_qtn ) );
     mdns->body.rrs = malloc ( mdns->head.rr * sizeof( mdns_rr ) );
@@ -317,27 +310,27 @@ int             strtom( mdns_msg *mdns, mdns_msg_raw *msg_raw )
 
     for ( int i = 0; i < mdns->head.qtn; i++ )
     {
-        if ( _strtomqtn( &( mdns->body.qtns[i] ), &msg, msg_raw->msg ) < 1 )
+        if ( _strtomqtn( &( mdns->body.qtns[i] ), &raw, raw_o ) < 1 )
         {
-            printf("Error: MDNS question processing\n");
+            fprintf(stderr, "Error: MDNS question processing\n");
             return -1;
         }
     }
 
     for ( int i = 0; i < mdns->head.rr; i++ )
     {
-        if ( _strtomrr( &( mdns->body.rrs[i] ), &msg, msg_raw->msg ) < 1 )
+        if ( _strtomrr( &( mdns->body.rrs[i] ), &raw, raw_o ) < 1 )
         {
-            printf("Error: MDNS ressource record processing\n");
+            fprintf(stderr, "Error: MDNS ressource record processing\n");
             return -1;
         }
     }
 
     for ( int i = 0; i < mdns->head.arr; i++ )
     {
-        if ( _strtomrr( &( mdns->body.arrs[i] ), &msg, msg_raw->msg ) < 1 )
+        if ( _strtomrr( &( mdns->body.arrs[i] ), &raw, raw_o ) < 1 )
         {
-            printf("Error: MDNS additional ressource record processing\n");
+            fprintf(stderr, "Error: MDNS additional ressource record processing\n");
             return -1;
         }
     }
@@ -346,58 +339,23 @@ int             strtom( mdns_msg *mdns, mdns_msg_raw *msg_raw )
 }
 
 //filters mdns messages
-int             mdns_select(mdns_msg ***mdns_msgs, mdns_msg_raw **raw_msgs, int msg_raw_cnt, char* srv)
+int             mdns_select(mdns_msg_vec *msgs, mdns_qtn_vec *qtns, char* srv)
 {
-    *mdns_msgs = malloc ( msg_raw_cnt * sizeof( mdns_msg * ) );
-    if ( *mdns_msgs == NULL )
+    for ( int i = 0; i < msgs->msg_ct; i++ )
     {
-        perror("malloc");
-        return -1;
-    }
-
-    short selected = 0, alloc = 2;
-
-    for ( int i = 0; i < msg_raw_cnt; i++ )
-    { 
-
-        mdns_msg *msg = (*mdns_msgs)[i] = malloc( sizeof( mdns_msg ) );
-        if ( msg == NULL )
-        {
-            perror("malloc");
-            return -1;
-        }
-        if ( strtom( msg, raw_msgs[i] ) < 1 )
-        {
-            perror("strtom");
-            return -1;
-        }
-
-        mdns_qtn **qtns_selected = malloc( msg->head.qtn * sizeof( mdns_msg * ) );
-        if ( qtns_selected == NULL )
-        {
-            perror("malloc");
-            return -1;
-        }
-
+        mdns_msg *msg = msgs->msgs[i];
         for ( int j = 0; j < msg->head.qtn; j++ )
         {
-            mdns_qtn *qtn = &( msg->body.qtns[j] );
-            printf("%s\n", qtn->name);
-            if ( strcmp( qtn->name, srv ) )
+            if ( !strcmp ( msg->body.qtns[j].name, srv ) )
             {
-                _mdns_qtn_free( qtn );
-            } else {
-                qtns_selected[ selected++ ] = qtn;
+                msg->body.qtns[j]
             }
         }
-        msg->body.qtns = *qtns_selected;
-        msg->head.qtn = selected;
-    
     }
 }
 
 //listens to mdns network and stores all messages
-int             mdns_listen(int fd, mdns_msg_raw ***raw_msgs, int buflen, double listen_time)
+int             mdns_listen(int fd, mdns_msg_raw_vec *raw_msgs, int buflen, double listen_time)
 {
     if ( _mdns_join(fd) < -1 )
     {
@@ -407,7 +365,7 @@ int             mdns_listen(int fd, mdns_msg_raw ***raw_msgs, int buflen, double
     u_short msg_ct = 0, msg_alloc = 2;
     time_t start, cur;
     start = cur = time(NULL);
-    *raw_msgs = malloc( msg_alloc * sizeof(mdns_msg_raw *) );
+    raw_msgs->msgs_raw = malloc( msg_alloc * sizeof(mdns_msg_raw *) );
 
     while ( difftime(cur, start) < (double)listen_time )
     {
@@ -467,30 +425,29 @@ int             mdns_listen(int fd, mdns_msg_raw ***raw_msgs, int buflen, double
                 {
                     //TODO implement debouncer
                     msg_alloc = msg_ct + 2;
-                    *raw_msgs = ( mdns_msg_raw ** ) realloc( *raw_msgs, msg_alloc * sizeof(mdns_msg_raw *) );
-                    if(*raw_msgs == NULL)
+                    raw_msgs->msgs_raw = ( mdns_msg_raw ** ) realloc( raw_msgs->msgs_raw, msg_alloc * sizeof(mdns_msg_raw *) );
+                    if(raw_msgs->msgs_raw == NULL)
                     {
                         perror("realloc");
                         return -1;
                     }
                 }
 
-                mdns_msg_raw **msg = *raw_msgs + msg_ct++;
-                *msg = malloc( sizeof( mdns_msg_raw ) );
-                if ( *msg == NULL )
+                mdns_msg_raw *m = raw_msgs->msgs_raw[msg_ct++] = malloc( sizeof( mdns_msg_raw ) );
+                if ( m == NULL )
                 {
                     perror("malloc");
                     return -1;
                 }
-                (*msg)->msg = malloc( nbytes * sizeof( char ) );
-                if ( (*msg)->msg == NULL )
+                m->msg = malloc( nbytes * sizeof( char ) );
+                if ( m->msg == NULL )
                 {
                     perror("realloc");
                     return -1;
                 }
-                memcpy( (*msg)->msg, msgbuf, nbytes );
-                (*msg)->msg_len = nbytes;
-                (*msg)->info = src;
+                memcpy( m->msg, msgbuf, nbytes );
+                m->msg_len = nbytes;
+                m->info = src;
 
                 printf("recved\n");
             }
@@ -502,5 +459,6 @@ int             mdns_listen(int fd, mdns_msg_raw ***raw_msgs, int buflen, double
             }
         }
     }
+    raw_msgs->raw_ct = msg_ct;
     return msg_ct;
 }
