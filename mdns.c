@@ -98,7 +98,7 @@ int             _mdns_exit(int fd)
 }
 
 //extracts string from mdns message dealing ith dns compression
-int             _mdns_name_res( u_char* msg, char* name, u_short idx )
+int             dcmptostr( u_char* msg, char* name, u_short idx )
 {
     if( msg[idx] == 0 )
     {
@@ -107,22 +107,22 @@ int             _mdns_name_res( u_char* msg, char* name, u_short idx )
     }
     else if ( msg[idx] >= 0xc0 )
     {
-        _mdns_name_res( msg, name, MAKEWORD( msg[idx+1], msg[idx] & ( 0b00111111 ) ) );
+        dcmptostr( msg, name, MAKEWORD( msg[idx+1], msg[idx] & ( 0b00111111 ) ) );
         return 2;
     }
     else
     {
         strncpy( name, 1 + msg + idx, msg[idx] );
-        return 1 + msg[idx] + _mdns_name_res( msg, name + msg[idx], 1 + msg[idx] + idx );
+        return 1 + msg[idx] + dcmptostr( msg, name + msg[idx], 1 + msg[idx] + idx );
     }
 }
 
 //converts string ptr rr to struct
-inline int      _dns_r_ptr( rr_ptr *ptr, char **msg, char *msg_o )
+inline int      _r_stoptr( rr_ptr *ptr, char **msg, char *msg_o )
 {
     u_short data_len = MAKEWORD( (*msg)[9], (*msg)[8] );
     char dom[256];
-    _mdns_name_res(msg_o, dom, ( *msg + 10 ) - msg_o );
+    dcmptostr(msg_o, dom, ( *msg + 10 ) - msg_o );
     ptr->dom_len    = strlen(dom);
     ptr->dom        = malloc( ptr->dom_len * sizeof(char) );
     if( ptr->dom == NULL )
@@ -136,7 +136,7 @@ inline int      _dns_r_ptr( rr_ptr *ptr, char **msg, char *msg_o )
 }
 
 //converts string a rr to struct
-inline int      _dns_r_a( rr_a *a, char **msg, char *msg_o )
+inline int      _r_stoa( rr_a *a, char **msg, char *msg_o )
 {
     u_short data_len = MAKEWORD( (*msg)[9], (*msg)[8] );
     a->addr         = MAKEDWORD( (*msg)[10], (*msg)[11], (*msg)[12], (*msg)[13] );
@@ -145,7 +145,7 @@ inline int      _dns_r_a( rr_a *a, char **msg, char *msg_o )
 }
 
 //converts string srv rr to struct
-inline int      _dns_r_srv( rr_srv *srv, char **msg, char *msg_o )
+inline int      _r_stosrv( rr_srv *srv, char **msg, char *msg_o )
 {
     char **labels = malloc( 3 * sizeof( char * ) );
 
@@ -173,7 +173,7 @@ inline int      _dns_r_srv( rr_srv *srv, char **msg, char *msg_o )
     srv->wgt            = MAKEWORD( (*msg)[13], (*msg)[12] );
     srv->port           = MAKEWORD( (*msg)[15], (*msg)[14] );
     char tgt[256];
-    srv->tgt_len        = _mdns_name_res( msg_o, tgt, ( *msg + 16 ) - msg_o );
+    srv->tgt_len        = dcmptostr( msg_o, tgt, ( *msg + 16 ) - msg_o );
     srv->tgt            = malloc( srv->tgt_len * sizeof(char) );
     strcpy( srv->tgt, tgt );
     *msg += 16 + srv->tgt_len;
@@ -181,7 +181,7 @@ inline int      _dns_r_srv( rr_srv *srv, char **msg, char *msg_o )
 }
 
 //converts string txt rr to struct
-inline int      _dns_r_txt( rr_txt *txt, char **msg, char *msg_o )
+inline int      _r_stotxt( rr_txt *txt, char **msg, char *msg_o )
 {
     u_short data_len    = MAKEWORD( (*msg)[9], (*msg)[8] );
     
@@ -233,10 +233,10 @@ int             _mdns_rr_prep( rr_base *base, char* name, u_char type, char **ms
 }
 
 //converts string mdns qtn to struct
-int             _strtomrr( mdns_rr *rr, char **msg, char *msg_o )
+int             _stomrr( mdns_rr *rr, char **msg, char *msg_o )
 {
     char name[MDNS_NAME_MAX_LEN];
-    *msg += _mdns_name_res( msg_o, name, msg_o - *msg );
+    *msg += dcmptostr( msg_o, name, msg_o - *msg );
     u_short type = MAKEWORD( *(*msg + 1), **msg );
 
     _mdns_rr_prep( ( rr_base * ) &(rr), name, type, msg );
@@ -244,16 +244,16 @@ int             _strtomrr( mdns_rr *rr, char **msg, char *msg_o )
     switch ( type )
     {
         case DNS_RR_PTR:
-            return _dns_r_ptr( &(rr->ptr), msg, msg_o );
+            return _r_stoptr( &(rr->ptr), msg, msg_o );
             break;
         case DNS_RR_A:
-            return _dns_r_a( &(rr->a), msg, msg_o );
+            return _r_stoa( &(rr->a), msg, msg_o );
             break;
         case DNS_RR_SRV:
-            return _dns_r_srv( &(rr->srv), msg, msg_o );
+            return _r_stosrv( &(rr->srv), msg, msg_o );
             break;
         case DNS_RR_TXT:
-            return _dns_r_txt( &(rr->txt), msg, msg_o );
+            return _r_stotxt( &(rr->txt), msg, msg_o );
             break;
         default:
             fprintf(stderr, "Error: DNS record of type %d not supported\n", type);
@@ -262,10 +262,10 @@ int             _strtomrr( mdns_rr *rr, char **msg, char *msg_o )
 }
 
 //converts string mdns qtn to struct
-int              _strtomqtn( mdns_qtn *qtn, char **msg, char *msg_o )
+int              _stomqtn( mdns_qtn *qtn, char **msg, char *msg_o )
 {
     char name[MDNS_NAME_MAX_LEN];
-    *msg += _mdns_name_res( msg_o, name, *msg - msg_o );
+    *msg += dcmptostr( msg_o, name, *msg - msg_o );
     u_char type = MAKEWORD( *(*msg + 1), **msg );
 
     qtn->name_len   = strlen( name );
@@ -286,7 +286,7 @@ int              _strtomqtn( mdns_qtn *qtn, char **msg, char *msg_o )
 }
 
 //extracts header from string mdns message
-inline void     _strtomhead(char **msg, mdns_head *head)
+inline void     _stomhead(char **msg, mdns_head *head)
 {
     
     head->tran_id   = MAKEWORD( (*msg)[1], (*msg)[0] );
@@ -299,10 +299,10 @@ inline void     _strtomhead(char **msg, mdns_head *head)
 }
 
 //converts string mdns message to struct
-int             strtom( mdns_msg *mdns, char *raw )
+int             stom( mdns_msg *mdns, char *raw )
 {
     char *raw_o = raw;
-    _strtomhead( &raw, &( mdns->head ) ); 
+    _stomhead( &raw, &( mdns->head ) ); 
 
     mdns->body.qtns = malloc ( mdns->head.qtn * sizeof( mdns_qtn ) );
     mdns->body.rrs = malloc ( mdns->head.rr * sizeof( mdns_rr ) );
@@ -310,7 +310,7 @@ int             strtom( mdns_msg *mdns, char *raw )
 
     for ( int i = 0; i < mdns->head.qtn; i++ )
     {
-        if ( _strtomqtn( &( mdns->body.qtns[i] ), &raw, raw_o ) < 1 )
+        if ( _stomqtn( &( mdns->body.qtns[i] ), &raw, raw_o ) < 1 )
         {
             fprintf(stderr, "Error: MDNS question processing\n");
             return -1;
@@ -319,7 +319,7 @@ int             strtom( mdns_msg *mdns, char *raw )
 
     for ( int i = 0; i < mdns->head.rr; i++ )
     {
-        if ( _strtomrr( &( mdns->body.rrs[i] ), &raw, raw_o ) < 1 )
+        if ( _stomrr( &( mdns->body.rrs[i] ), &raw, raw_o ) < 1 )
         {
             fprintf(stderr, "Error: MDNS ressource record processing\n");
             return -1;
@@ -328,7 +328,7 @@ int             strtom( mdns_msg *mdns, char *raw )
 
     for ( int i = 0; i < mdns->head.arr; i++ )
     {
-        if ( _strtomrr( &( mdns->body.arrs[i] ), &raw, raw_o ) < 1 )
+        if ( _stomrr( &( mdns->body.arrs[i] ), &raw, raw_o ) < 1 )
         {
             fprintf(stderr, "Error: MDNS additional ressource record processing\n");
             return -1;
@@ -339,8 +339,9 @@ int             strtom( mdns_msg *mdns, char *raw )
 }
 
 //filters mdns messages
-int             mdns_select(mdns_msg_vec *msgs, mdns_qtn_vec *qtns, char* srv)
+int             select_q(mdns_msg_vec *msgs, mdns_qtn_vec *qtns, char* srv)
 {
+    u_short alloc = 0;
     for ( int i = 0; i < msgs->msg_ct; i++ )
     {
         mdns_msg *msg = msgs->msgs[i];
@@ -348,10 +349,21 @@ int             mdns_select(mdns_msg_vec *msgs, mdns_qtn_vec *qtns, char* srv)
         {
             if ( !strcmp ( msg->body.qtns[j].name, srv ) )
             {
-                msg->body.qtns[j]
+                if ( qtns->qtn_ct >= alloc )
+                {
+                    alloc = qtns->qtn_ct + 2;
+                    qtns->qtns = realloc( qtns->qtns, alloc * sizeof( mdns_qtn * ) );
+                    if ( qtns->qtns == NULL )
+                    {
+                        perror("realloc");
+                        return -1;
+                    }
+                }
+                memcpy( qtns->qtns + qtns->qtn_ct++, &( msg->body.qtns[j] ), sizeof( mdns_qtn * ) );
             }
         }
     }
+    return qtns->qtn_ct;
 }
 
 //listens to mdns network and stores all messages

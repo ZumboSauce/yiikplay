@@ -167,20 +167,29 @@ typedef struct mdns_msg_vec
     u_short msg_ct;
 } mdns_msg_vec;
 
+typedef struct label label;
+struct label
+{
+    char *l;
+    u_short l_len;
+    label *next;
+};
+
 int             init_mdns_addr( int *fd );
 int             _mdns_join( const int fd );
 int             _mdns_exit( const int fd );
 int             mdns_listen( const int fd, mdns_msg_raw_vec *raw_msgs, int buflen, double listen_time );
-int             mdns_select( mdns_msg_vec *msgs, mdns_qtn_vec *qtns, char* srv );
+int             select_q( mdns_msg_vec *msgs, mdns_qtn_vec *qtns, char* srv );
 
 #define _IS_QUERY(f) ( ~( f & (0b1 << 8) ) )
-int             strtom( mdns_msg *mdns, char *raw );
-void            _strtomhead( char **msg, mdns_head *head );
-int             _strtomqtn( mdns_qtn *qtn, char **msg, char *msg_o );
-int             _strtomrr( mdns_rr *rr, char **msg, char *msg_o );
-int             _mdns_name_res( u_char* msg, char* name, u_short idx );
-int             _dns_r_ptr( rr_ptr *ptr, char **msg, char *msg_o );
-int             _dns_r_a( rr_a *a, char **msg, char *msg_o );
-int             _dns_r_srv( rr_srv *srv, char **msg, char *msg_o );
-int             _dns_r_txt( rr_txt *txt, char **msg, char *msg_o );
+int             stom ( mdns_msg *mdns, char *raw );
+void            _stomhead ( char **msg, mdns_head *head );
+int             _stomqtn ( mdns_qtn *qtn, char **msg, char *msg_o );
+int             _stomrr ( mdns_rr *rr, char **msg, char *msg_o );
+int             dcmptostr ( u_char* msg, char* name, u_short idx );
+int             _r_stoptr ( rr_ptr *ptr, char **msg, char *msg_o );
+int             _r_stoa ( rr_a *a, char **msg, char *msg_o );
+int             _r_stosrv ( rr_srv *srv, char **msg, char *msg_o );
+int             _r_stotxt ( rr_txt *txt, char **msg, char *msg_o );
+int             mtos ( mdns_msg *mdns, char *raw );
 #endif
