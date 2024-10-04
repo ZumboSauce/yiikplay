@@ -172,8 +172,15 @@ struct label
 {
     char *l;
     u_short l_len;
+    u_short idx;
     label *next;
 };
+
+typedef struct label_t
+{
+    label *f;
+    label *last;
+} label_t;
 
 int             init_mdns_addr( int *fd );
 int             _mdns_join( const int fd );
