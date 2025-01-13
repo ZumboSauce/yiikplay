@@ -22,7 +22,7 @@
 #endif
 
 #include "mdns.h"
-#include "airplay_mdns.h"
+#include "mdns_types.h"
 #include "util.h"
 
 //initializes network ressources
@@ -97,19 +97,6 @@ int             _mdns_exit(int fd)
     return 1;
 }
 
-char            *strlchr( const char *__s, int __c )
-{
-    while ( *__s != 0 )
-    {
-        if ( *__s < __c )
-        {
-            return __s;
-        }
-        __s += 1;
-    }
-    return NULL;
-}
-
 int             stodcmp ( u_char *msg, u_short idx,  char *name, label_t *lt )
 {
     if ( name[0] == 0 )
@@ -118,35 +105,44 @@ int             stodcmp ( u_char *msg, u_short idx,  char *name, label_t *lt )
     }
 
     char *end;
-    u_short len = ( ( end = strlchr( name, 64 ) ) != NULL ) ? name - end : strlen( name ) ;
+    short len = ( ( end = strlchr( name, 64 ) ) != NULL ) ? end - name : strlen( name ) ;
     
-    label *l = lt->f ;
-    while ( l != lt->last )
+    label *l = lt->f;
+    while ( l != NULL )
     {
         if ( !strcmp( name, l->l ) )
         {
-            msg[idx] = l->idx >> 8 + 0xc0;
+            msg[idx] = (l->idx >> 8) + 0xc0;
             msg[idx+1] = l->idx & 0xff;
             return 1;
         }
+        l = l->next;
     }
-    
+
     label *label_new = malloc ( sizeof( label ) );
-    *label_new = ( label ) {
-        .l = malloc ( strlen( name ) * sizeof( u_char ) ),
-        .l_len = strlen( name ),
-        .idx = idx,
-        .next = NULL 
-    };
     if ( label_new == NULL )
-        {
+    {
         perror("malloc");
         return -1;
     }
+    memcpy(
+        label_new,
+        &( ( label ) {
+            .l = malloc ( strlen( name ) * sizeof( u_char ) ),
+            .l_len = strlen( name ),
+            .idx = idx,
+            .next = NULL
+            } ), 
+        sizeof(label)
+    );
     strcpy( label_new->l, name );
-
-    lt->last->next = label_new;
-    lt->last = label_new;
+    if ( lt->last == NULL )
+    {
+        lt->f = lt->last = label_new;
+    } else {
+        lt->last->next = label_new;
+        lt->last = label_new;
+    }
 
     return stodcmp( msg, idx + len, name + len, lt);
 }
@@ -159,6 +155,7 @@ char            *stomn ( char *s )
     {
         return NULL;
     }
+
     u_short idx = 0;
     while ( *(s++) != 0 )
     {
@@ -172,31 +169,66 @@ char            *stomn ( char *s )
     return name;
 }
 
+int             _r_atos( mdns_rr *rr, char *raw )
+{
+    raw[8] = rr->a.type >> 8;
+    raw[9] = rr->a.type & 0xff;
+    raw[10] = rr->a.addr >> 24;
+    raw[11] = (rr->a.addr & 0xff0000) >> 16;
+    raw[12] = (rr->a.addr & 0xff00) >> 8;
+    raw[13] = rr->a.addr & 0xff; 
+}
+
+int             _mrrtos( mdns_rr *rr, char *raw )
+{
+    switch ( rr->a.type )
+    {
+        case DNS_RR_A:
+            
+    }
+}
+
 int             mtos ( mdns_msg *mdns, char *raw )
 {
-    label_t labels;
-
-    u_short idx = 0;
-    raw[idx++] = mdns->head.tran_id >> 8;
-    raw[idx++] = mdns->head.tran_id & 0xff;
-    raw[idx++] = mdns->head.flags >> 8;
-    raw[idx++] = mdns->head.flags & 0xff;
-    raw[idx++] = mdns->head.qtn >> 8;
-    raw[idx++] = mdns->head.qtn & 0xff;
-    raw[idx++] = mdns->head.rr >> 8;
-    raw[idx++] = mdns->head.rr & 0xff;
-    raw[idx++] = mdns->head.auth_rr >> 8;
-    raw[idx++] = mdns->head.auth_rr & 0xff;
-    raw[idx++] = mdns->head.arr >> 8;
-    raw[idx++] = mdns->head.arr & 0xff;
+    label_t labels = {
+        .f = NULL,
+        .last = NULL
+    };
+    //_mtos_head( &(mdns->head), raw);
+    u_short idx = 12;
 
     for ( int i = 0; i < mdns->head.qtn; i++ )
     {
-        char *name = stomn( mdns->body.qtns[i].name );
-        idx = stodcmp( raw, idx, name, &labels ) + 1;
-        //msg[idx] = 
+        mdns_qtn qtn = mdns->body.qtns[i];
+        idx = stodcmp( raw, idx, qtn.name, &labels ) + 1;
+        raw[idx++] = qtn.type;
+        u_short cqu = MAKEWORD(qtn.cast, qtn.class);
+        raw[idx++] = cqu >> 8;
+        raw[idx++] = cqu & 0xff;
     }
+    for ( int i = 0; i < mdns->head.rr; i++ )
+    {
+
+    }
+
 }
+
+/*void _mtos_head( mdns_head *head, char *raw )
+{
+    raw[0] =    head->tran_id >> 8;
+    raw[1] =    head->tran_id & 0xff;
+    raw[2] =    head->flags >> 8;
+    raw[3] =    head->flags & 0xff;
+    raw[4] =    head->qtn >> 8;
+    raw[5] =    head->qtn & 0xff;
+    raw[6] =    head->rr >> 8;
+    raw[7] =    head->rr & 0xff;
+    raw[8] =    head->auth_rr >> 8;
+    raw[9] =    head->auth_rr & 0xff;
+    raw[10] =   head->arr >> 8;
+    raw[11] =   head->arr & 0xff;
+}
+*/
 
 //extracts string from mdns message dealing ith dns compression
 int             dcmptostr( u_char* msg, char* name, u_short idx )
@@ -470,6 +502,11 @@ int             select_q(mdns_msg_vec *msgs, mdns_qtn_vec *qtns, char* srv)
     return qtns->qtn_ct;
 }
 
+int             mdns_process(  )
+{
+    
+}
+
 //listens to mdns network and stores all messages
 int             mdns_listen(int fd, mdns_msg_raw_vec *raw_msgs, int buflen, double listen_time)
 {
@@ -567,7 +604,6 @@ int             mdns_listen(int fd, mdns_msg_raw_vec *raw_msgs, int buflen, doub
 
                 printf("recved\n");
             }
-            
             else
             {
                 perror("read");

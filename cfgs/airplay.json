@@ -1,0 +1,96 @@
+
+
+{
+    "usage":
+    {
+        "in_q": [ 1, "head", 2, "queries"],
+        "out_q" : [ 1, "head", 1, "queries" ]
+    },
+    "head": {
+        "INFO": {
+            "TYPE": "STRUCT",
+            "DYNAMIC": 0,
+            "SIZE": 12,
+            "NAME": "head"
+        },
+        "DEF": [
+            {
+                "TYPE": "WORD",
+                "DYNAMIC": 0,
+                "SIZE": 2,
+                "NAME": "tran_id"
+            },
+            {
+                "TYPE": "WORD",
+                "DYNAMIC": 0,
+                "SIZE": 2,
+                "NAME": "flags"
+            },
+            {
+                "TYPE": "WORD",
+                "DYNAMIC": 0,
+                "SIZE": 2,
+                "NAME": "qtns"
+            },
+            {
+                "TYPE": "WORD",
+                "DYNAMIC": 0,
+                "SIZE": 2,
+                "NAME": "rrs"
+            },
+            {
+                "TYPE": "WORD",
+                "DYNAMIC": 0,
+                "SIZE": 2,
+                "NAME": "auth_rrs"
+            },
+            {
+                "TYPE": "WORD",
+                "DYNAMIC": 0,
+                "SIZE": 2,
+                "NAME": "add_rrs"
+            }
+        ]
+    },
+    "queries": {
+        "INFO": {
+            "TYPE": "ARRAY",
+            "SUBTYPE": "DYNAMIC",
+            "HANDLER": " ${MEMBER}.type",
+            "DYNAMIC": 1,
+            "SIZE": "=head.qtns",
+            "NAME": "queries"
+        },
+        "DEF": [
+            {
+                "12": [
+                    {
+                        "TYPE": "WORD",
+                        "DYNAMIC": 0,
+                        "SIZE": "2",
+                        "NAME": "type"
+                    },
+                    {
+                        "TYPE": "STR",
+                        "DYNAMIC": 1,
+                        "COMPRESSED": 1,
+                        "NAME": "name"
+                    },
+                    {
+                        "TYPE": "BITFIELD",
+                        "DYNAMIC": 0,
+                        "SIZE": 2,
+                        "0":{
+                            "SIZE": 1,
+                            "NAME": "class"
+                        },
+                        "1": {
+                            "SIZE": 15,
+                            "NAME": "cast"
+                        }
+                    }
+                ]
+            }
+        ]
+    }
+}

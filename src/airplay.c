@@ -1,11 +1,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "mdns.h"
-#include "airplay_mdns.h"
 #include <string.h>
 
 int main(){
-    int fd;
+    /*int fd;
     init_mdns_addr(&fd);
     mdns_msg_raw_vec msgs_raw;
     int count = mdns_listen(fd, &msgs_raw, 2048, 10.0);
@@ -40,5 +39,23 @@ int main(){
     select_q(&mdns_msgs, &qtns_airplay, AIRPLAY_MDNS_SERVICE);
 
     //int thing = mdns_select(&mdns_msgs, &msgs_raw, AIRPLAY_MDNS_SERVICE);
-    printf("%d MDNS selected\n", qtns_airplay.qtn_ct);
+    printf("%d MDNS selected\n", qtns_airplay.qtn_ct);*/
+    char *buf;
+    open_cfg( "cfgs/airplay.json", &buf );
+    /*
+    mdns_msg test;
+    test.head.tran_id = 0;
+    test.head.flags = 0;
+    test.head.qtn = 1;
+    test.head.rr = 0;
+    test.head.arr = 0;
+    test.head.auth_rr = 0;
+    mdns_qtn *qtn = &(test.body.qtns[0]);
+    qtn->type = 12;
+    qtn->name = "cum.tcp.local";
+    qtn->cast = 1;
+    qtn->class = 1;
+    char buf[1024];
+    mtos( &test, buf );
+    */
 }
